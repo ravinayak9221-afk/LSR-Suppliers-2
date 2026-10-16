@@ -6,9 +6,28 @@
     <title>LSR Building Material Suppliers - ERP Dashboard</title>
     <!-- html2pdf library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <!-- Firebase SDK (Compat Version for Firestore Cloud Database) -->
+    
+    <!-- Firebase App & Services SDK (Compat) for Firebase Hosting / Console Integration -->
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <script>
+        // Firebase Configuration Initialization Boilerplate
+        // Replace the placeholder values below with your actual Firebase project configuration from the Firebase Console if connecting live backend services.
+        const firebaseConfig = {
+            apiKey: "AIzaSyBrwY0zBkG1PNlrrTTCReXiQK65o-WgnHc",
+            authDomain: "lsr-suppliers-b18c6.firebaseapp.com",
+            projectId: "lsr-suppliers-b18c6",
+            storageBucket: "lsr-suppliers-b18c6.firebasestorage.app",
+            messagingSenderId: "4593558827",
+            appId: "1:4593558827:web:f3399d88d7ea6a3d5e516e"
+        };
+        // Initialize Firebase if not already initialized
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+    </script>
+
     <style>
         :root {
             /* Refreshed Brand & Document Colors */
@@ -840,32 +859,6 @@
     <div id="hidden-pdf-container" style="display:none;"></div>
 
 <script>
-    // ==========================================
-    // FIREBASE CLOUD DATABASE CONFIGURATION
-    // ==========================================
-    // TODO: Replace with your actual Firebase Console project credentials
-    const firebaseConfig = {
-        apiKey: "AIzaSyAVsbHqKY3zDIZh8_Pj0ZUArvbP9-iVQ7U",
-        authDomain: "lsr-suppliers-7bd86.firebaseapp.com",
-        projectId: "lsr-suppliers-7bd86",
-        storageBucket: "lsr-suppliers-7bd86.firebasestorage.app",
-        messagingSenderId: "885430451439",
-        appId: "1:885430451439:web:a6b49325fd6a2e3c406f1a",
-        measurementId: "G-8G3FS3X9V5"
-    };
-
-    // Initialize Firebase
-    if (!firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
-    }
-    const db = firebase.firestore();
-
-    // In-memory caches synchronized with Firestore
-    let taxInvoicesCache = [];
-    let normalInvoicesCache = [];
-    let taxSequencesCache = {};
-    let normalSequencesCache = {};
-
     // Authentication Logic
     function handleLogin() {
         const user = document.getElementById('login-username').value;
@@ -926,52 +919,20 @@
     const MAX_ROWS = 6;
     let quotRowCount = 0;
 
-    window.onload = async function() {
+    window.onload = function() {
         document.getElementById('inv-date').valueAsDate = new Date();
         document.getElementById('Normal-inv-date').valueAsDate = new Date();
         document.getElementById('q-date').valueAsDate = new Date();
-        
-        // Load data from Firebase Cloud Firestore on startup
-        await loadDataFromFirebase();
-
+        updateInvoiceNumberBasedOnDate();
+        updateNormalInvoiceNumberBasedOnDate();
         addRow();
         addNormalRow();
         addQuotRow();
         updateDashboardMetrics();
     };
 
-    async function loadDataFromFirebase() {
-        try {
-            // Fetch Tax Invoices
-            const taxSnapshot = await db.collection('LSR_invoices').get();
-            taxInvoicesCache = taxSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            
-            // Sort by date ascending
-            taxInvoicesCache.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-            // Fetch Normal Invoices
-            const normalSnapshot = await db.collection('LSR_Normal_invoices').get();
-            normalInvoicesCache = normalSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            normalInvoicesCache.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-            // Fetch Sequences Metadata
-            const seqDoc = await db.collection('LSR_metadata').doc('sequences').get();
-            if (seqDoc.exists) {
-                const data = seqDoc.data();
-                taxSequencesCache = data.taxSequences || {};
-                normalSequencesCache = data.normalSequences || {};
-            }
-
-            updateInvoiceNumberBasedOnDate();
-            updateNormalInvoiceNumberBasedOnDate();
-        } catch (error) {
-            console.error("Error loading data from Firebase Firestore:", error);
-            alert("Could not connect to Firebase Cloud Database. Please verify your configuration in the script.");
-        }
-    }
-
     function updateDashboardMetrics() {
-        let history = taxInvoicesCache;
+        let history = JSON.parse(localStorage.getItem('LSR_invoices')) || [];
         let totalSales = 0;
         let totalTax = 0;
 
@@ -1021,7 +982,9 @@
         const d = dateStr ? new Date(dateStr) : new Date();
         const fy = getFinancialYear(d);
         
-        let nextSeq = taxSequencesCache[fy] ? taxSequencesCache[fy] : 1;
+        let sequences = JSON.parse(localStorage.getItem('LSR_sequences')) || {};
+        let nextSeq = sequences[fy] ? sequences[fy] : 1;
+        
         const paddedSeq = nextSeq.toString().padStart(2, '0');
         document.getElementById('inv-number').value = `LSR-${paddedSeq}/${fy}`;
     }
@@ -1031,7 +994,9 @@
         const d = dateStr ? new Date(dateStr) : new Date();
         const fy = getFinancialYear(d);
         
-        let nextSeq = normalSequencesCache[fy] ? normalSequencesCache[fy] : 1;
+        let sequences = JSON.parse(localStorage.getItem('LSR_Normal_sequences')) || {};
+        let nextSeq = sequences[fy] ? sequences[fy] : 1;
+        
         const paddedSeq = nextSeq.toString().padStart(2, '0');
         document.getElementById('Normal-inv-number').value = `${paddedSeq}/${fy}`;
     }
@@ -1338,24 +1303,16 @@
         });
     }
 
-    async function saveInvoiceToHistory(invoiceData) {
-        try {
-            const docRef = await db.collection('LSR_invoices').add(invoiceData);
-            invoiceData.id = docRef.id;
-            taxInvoicesCache.push(invoiceData);
+    function saveInvoiceToHistory(invoiceData) {
+        let history = JSON.parse(localStorage.getItem('LSR_invoices')) || [];
+        history.push(invoiceData);
+        localStorage.setItem('LSR_invoices', JSON.stringify(history));
 
-            const d = new Date(invoiceData.date);
-            const fy = getFinancialYear(d);
-            taxSequencesCache[fy] = (taxSequencesCache[fy] || 1) + 1;
-
-            await db.collection('LSR_metadata').doc('sequences').set({
-                taxSequences: taxSequencesCache,
-                normalSequences: normalSequencesCache
-            }, { merge: true });
-        } catch (error) {
-            console.error("Error saving tax invoice to Firestore:", error);
-            alert("Error saving invoice to cloud database.");
-        }
+        const d = new Date(invoiceData.date);
+        const fy = getFinancialYear(d);
+        let sequences = JSON.parse(localStorage.getItem('LSR_sequences')) || {};
+        sequences[fy] = (sequences[fy] || 1) + 1;
+        localStorage.setItem('LSR_sequences', JSON.stringify(sequences));
     }
 
     function collectInvoiceData() {
@@ -1423,7 +1380,7 @@
 
         const invoiceNode = document.getElementById('invoice-node');
         const invoiceData = collectInvoiceData();
-        await saveInvoiceToHistory(invoiceData);
+        saveInvoiceToHistory(invoiceData);
 
         const clone = invoiceNode.cloneNode(true);
         
@@ -1449,7 +1406,7 @@
         await html2pdf().set(opt).from(clone).save();
 
         updateInvoiceNumberBasedOnDate();
-        alert("Invoice Saved to Cloud Database and Downloaded Successfully!");
+        alert("Invoice Saved and Downloaded Successfully!");
         updateDashboardMetrics();
     }
 
@@ -1462,23 +1419,15 @@
         const NormalNode = document.getElementById('Normal-invoice-node');
         const NormalData = collectNormalInvoiceData();
         
-        try {
-            const docRef = await db.collection('LSR_Normal_invoices').add(NormalData);
-            NormalData.id = docRef.id;
-            normalInvoicesCache.push(NormalData);
+        let history = JSON.parse(localStorage.getItem('LSR_Normal_invoices')) || [];
+        history.push(NormalData);
+        localStorage.setItem('LSR_Normal_invoices', JSON.stringify(history));
 
-            const d = new Date(NormalData.date);
-            const fy = getFinancialYear(d);
-            normalSequencesCache[fy] = (normalSequencesCache[fy] || 1) + 1;
-
-            await db.collection('LSR_metadata').doc('sequences').set({
-                taxSequences: taxSequencesCache,
-                normalSequences: normalSequencesCache
-            }, { merge: true });
-        } catch (error) {
-            console.error("Error saving normal invoice to Firestore:", error);
-            alert("Error saving normal invoice to cloud database.");
-        }
+        const d = new Date(NormalData.date);
+        const fy = getFinancialYear(d);
+        let sequences = JSON.parse(localStorage.getItem('LSR_Normal_sequences')) || {};
+        sequences[fy] = (sequences[fy] || 1) + 1;
+        localStorage.setItem('LSR_Normal_sequences', JSON.stringify(sequences));
 
         const clone = NormalNode.cloneNode(true);
         
@@ -1504,7 +1453,7 @@
         await html2pdf().set(opt).from(clone).save();
 
         updateNormalInvoiceNumberBasedOnDate();
-        alert("Normal Invoice Saved to Cloud Database and Downloaded Successfully!");
+        alert("Normal Invoice Saved and Downloaded Successfully!");
     }
 
     async function generateQuotation() {
@@ -1541,7 +1490,8 @@
 
     function renderHistoryTable() {
         let repType = document.getElementById('report-type-select').value;
-        let history = repType === 'tax' ? taxInvoicesCache : normalInvoicesCache;
+        let storageKey = repType === 'tax' ? 'LSR_invoices' : 'LSR_Normal_invoices';
+        let history = JSON.parse(localStorage.getItem(storageKey)) || [];
         const tbody = document.getElementById('history-body');
         tbody.innerHTML = '';
 
@@ -1582,50 +1532,43 @@
         }
     }
 
-    async function deleteInvoice(index) {
+    function deleteInvoice(index) {
         let repType = document.getElementById('report-type-select').value;
-        let history = repType === 'tax' ? taxInvoicesCache : normalInvoicesCache;
-        let collectionName = repType === 'tax' ? 'LSR_invoices' : 'LSR_Normal_invoices';
+        let storageKey = repType === 'tax' ? 'LSR_invoices' : 'LSR_Normal_invoices';
+        let seqKey = repType === 'tax' ? 'LSR_sequences' : 'LSR_Normal_sequences';
 
-        if(confirm("Are you sure you want to delete this invoice record from the cloud database?")) {
+        if(confirm("Are you sure you want to delete this invoice record? This action cannot be undone.")) {
+            let history = JSON.parse(localStorage.getItem(storageKey)) || [];
             let invToDelete = history[index];
             
-            if (invToDelete && invToDelete.id) {
-                try {
-                    await db.collection(collectionName).doc(invToDelete.id).delete();
-                    
-                    let parts = invToDelete.invNumber.split('/');
-                    if (parts.length === 2) {
-                        let fy = parts[1];
-                        let seqParts = parts[0].split('-');
-                        let seq = seqParts.length === 2 ? parseInt(seqParts[1], 10) : parseInt(parts[0], 10);
-                        
-                        let seqCache = repType === 'tax' ? taxSequencesCache : normalSequencesCache;
-                        if (seqCache[fy] && seq === seqCache[fy] - 1) {
-                            seqCache[fy]--;
-                            await db.collection('LSR_metadata').doc('sequences').set({
-                                taxSequences: taxSequencesCache,
-                                normalSequences: normalSequencesCache
-                            }, { merge: true });
-
+            if (invToDelete && invToDelete.invNumber) {
+                let parts = invToDelete.invNumber.split('/');
+                if (parts.length === 2) {
+                    let fy = parts[1];
+                    let seqParts = parts[0].split('-');
+                    if (seqParts.length === 2) {
+                        let seq = parseInt(seqParts[1], 10);
+                        let sequences = JSON.parse(localStorage.getItem(seqKey)) || {};
+                        if (sequences[fy] && seq === sequences[fy] - 1) {
+                            sequences[fy]--;
+                            localStorage.setItem(seqKey, JSON.stringify(sequences));
                             if (repType === 'tax') updateInvoiceNumberBasedOnDate();
                             else updateNormalInvoiceNumberBasedOnDate();
                         }
                     }
-
-                    history.splice(index, 1);
-                    renderHistoryTable();
-                    if (repType === 'tax') updateDashboardMetrics();
-                } catch (error) {
-                    console.error("Error deleting invoice from Firestore:", error);
-                    alert("Failed to delete invoice from cloud database.");
                 }
             }
+
+            history.splice(index, 1);
+            localStorage.setItem(storageKey, JSON.stringify(history));
+            
+            renderHistoryTable();
+            if (repType === 'tax') updateDashboardMetrics();
         }
     }
 
     async function reprintInvoice(index) {
-        let history = taxInvoicesCache;
+        let history = JSON.parse(localStorage.getItem('LSR_invoices')) || [];
         const inv = history[index];
         if (!inv) return;
 
@@ -1680,7 +1623,7 @@
     }
 
     async function reprintNormalInvoice(index) {
-        let history = normalInvoicesCache;
+        let history = JSON.parse(localStorage.getItem('LSR_Normal_invoices')) || [];
         const inv = history[index];
         if (!inv) return;
 
@@ -1730,7 +1673,8 @@
 
     async function downloadAllInvoicesPDF() {
         let repType = document.getElementById('report-type-select').value;
-        let history = repType === 'tax' ? taxInvoicesCache : normalInvoicesCache;
+        let storageKey = repType === 'tax' ? 'LSR_invoices' : 'LSR_Normal_invoices';
+        let history = JSON.parse(localStorage.getItem(storageKey)) || [];
 
         let fromDate = document.getElementById('filter-from-date').value;
         let toDate = document.getElementById('filter-to-date').value;
@@ -1739,7 +1683,7 @@
         if (fromDate && toDate) {
             const start = new Date(fromDate);
             const end = new Date(toDate);
-            filteredHistory = history.history ? history : history.filter(inv => {
+            filteredHistory = history.filter(inv => {
                 const invDate = new Date(inv.date);
                 return invDate >= start && invDate <= end;
             });
